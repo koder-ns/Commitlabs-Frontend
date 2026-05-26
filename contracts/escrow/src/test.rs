@@ -207,3 +207,43 @@ fn owner_index_tracks_commitments() {
     assert_eq!(ids.get(0).unwrap(), a);
     assert_eq!(ids.get(1).unwrap(), b);
 }
+
+#[test]
+fn attestation_history_storage_and_ordering() {
+    let f = setup();
+    let owner = Address::generate(&f.env);
+    let attestor = Address::generate(&f.env);
+    let id = f
+        .client
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+        
+    f.env.ledger().set_timestamp(100);
+    f.client.record_attestation(&id, &attestor, &80);
+    
+    f.env.ledger().set_timestamp(200);
+    f.client.record_attestation(&id, &attestor, &90);
+    
+    f.env.ledger().set_timestamp(300);
+    f.client.record_attestation(&id, &attestor, &110); // Should be clamped to 100
+    
+    let history = f.client.get_attestations(&id);
+    assert_eq!(history.len(), 3);
+    
+    let rec0 = history.get(0).unwrap();
+    assert_eq!(rec0.attestor, attestor.clone());
+    assert_eq!(rec0.compliance_score, 80);
+    assert_eq!(rec0.timestamp, 100);
+    
+    let rec1 = history.get(1).unwrap();
+    assert_eq!(rec1.attestor, attestor.clone());
+    assert_eq!(rec1.compliance_score, 90);
+    assert_eq!(rec1.timestamp, 200);
+    
+    let rec2 = history.get(2).unwrap();
+    assert_eq!(rec2.attestor, attestor.clone());
+    assert_eq!(rec2.compliance_score, 100);
+    assert_eq!(rec2.timestamp, 300);
+    
+    let c = f.client.get_commitment(&id);
+    assert_eq!(c.compliance_score, 100);
+}

@@ -34,6 +34,8 @@ pub enum DataKey {
     OwnerIndex(Address),
     /// Protocol fee recipient.
     FeeRecipient,
+    /// History of attestations for a given commitment id.
+    Attestations(u64),
 }
 
 /// Risk profile chosen at creation time. Determines the early-exit penalty
@@ -60,6 +62,15 @@ pub enum EscrowStatus {
     Refunded,
     /// Under dispute; transfers are frozen.
     Disputed,
+}
+
+/// A single historical attestation record.
+#[contracttype]
+#[derive(Clone)]
+pub struct AttestationRecord {
+    pub attestor: Address,
+    pub compliance_score: u32,
+    pub timestamp: u64,
 }
 
 /// A single escrow / commitment record.
@@ -354,6 +365,23 @@ impl EscrowContract {
         let score = if compliance_score > 100 { 100 } else { compliance_score };
         c.compliance_score = score;
         Self::save(&env, &c);
+
+        let mut attestations: Vec<AttestationRecord> = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Attestations(commitment_id))
+            .unwrap_or_else(|| Vec::new(&env));
+        
+        attestations.push_back(AttestationRecord {
+            attestor: attestor.clone(),
+            compliance_score: score,
+            timestamp: env.ledger().timestamp(),
+        });
+        
+        env.storage()
+            .persistent()
+            .set(&DataKey::Attestations(commitment_id), &attestations);
+
         env.events().publish(
             (Symbol::new(&env, "record_attestation"), attestor),
             (commitment_id, score),
@@ -364,6 +392,14 @@ impl EscrowContract {
     /// Read a single commitment record.
     pub fn get_commitment(env: Env, commitment_id: u64) -> Result<Commitment, Error> {
         Self::load(&env, commitment_id)
+    }
+
+    /// Return the list of attestation history for a commitment id.
+    pub fn get_attestations(env: Env, commitment_id: u64) -> Vec<AttestationRecord> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Attestations(commitment_id))
+            .unwrap_or_else(|| Vec::new(&env))
     }
 
     /// Return the list of commitment ids owned by an address.
