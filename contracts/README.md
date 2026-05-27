@@ -61,6 +61,11 @@ create_commitment ──► fund_escrow ──► release            (matured: p
 | `is_paused()` | Read the current paused state. |
 | `get_commitment(commitment_id)` | Read a single commitment record. |
 | `get_owner_commitments(owner)` | List commitment ids owned by an address. |
+| `get_attestations(commitment_id)` | Retrieve the timeline of `AttestationRecord`s for a commitment. |
+
+### Attestation History
+
+Compliance scores recorded via `record_attestation` are appended to an on-chain historical log. This allows clients to query the timeline of scores for a given commitment rather than just reading the latest value. Use `get_attestations` to retrieve a list of `AttestationRecord` structures, each containing the attestor address, the compliance score, and the timestamp.
 
 ### `early_exit_commitment` entrypoint details
 
