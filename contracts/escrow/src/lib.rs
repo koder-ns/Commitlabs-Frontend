@@ -246,8 +246,10 @@ impl EscrowContract {
             return Err(Error::InvalidState);
         }
 
-        let penalty = (c.amount * c.penalty_bps as i128) / MAX_PENALTY_BPS as i128;
-        let refund_amount = c.amount - penalty;
+        // Basis points represent a fraction out of 10_000. The penalty is the
+        // floor of `amount * penalty_bps / 10_000`, so refund + penalty always
+        // partitions the original principal while staying within checked math.
+        let (penalty, refund_amount) = Self::compute_refund_amount(c.amount, c.penalty_bps)?;
 
         let token = Self::token_client(&env);
         let contract = env.current_contract_address();
@@ -326,8 +328,8 @@ impl EscrowContract {
             c.status = EscrowStatus::Released;
             paid = c.amount;
         } else {
-            let penalty = (c.amount * c.penalty_bps as i128) / MAX_PENALTY_BPS as i128;
-            paid = c.amount - penalty;
+            let (_, refund_amount) = Self::compute_refund_amount(c.amount, c.penalty_bps)?;
+            paid = refund_amount;
             token.transfer(&contract, &c.owner, &paid);
             c.status = EscrowStatus::Refunded;
         }
@@ -381,6 +383,28 @@ impl EscrowContract {
             return Err(Error::NotInitialized);
         }
         Ok(())
+    }
+
+    /// Compute the refund split using basis points.
+    ///
+    /// `penalty_bps` is a fraction out of 10_000, so `500` means 5%. We use
+    /// integer floor division and checked arithmetic to preserve the invariant
+    /// `refund + penalty == amount` without overflow.
+    fn compute_refund_amount(amount: i128, penalty_bps: u32) -> Result<(i128, i128), Error> {
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+        if penalty_bps > MAX_PENALTY_BPS {
+            return Err(Error::PenaltyTooHigh);
+        }
+
+        let penalty = amount
+            .checked_mul(penalty_bps as i128)
+            .ok_or(Error::InvalidAmount)?
+            / MAX_PENALTY_BPS as i128;
+        let refund_amount = amount.checked_sub(penalty).ok_or(Error::InvalidAmount)?;
+
+        Ok((penalty, refund_amount))
     }
 
     fn next_id(env: &Env) -> u64 {

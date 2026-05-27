@@ -53,6 +53,23 @@ create_commitment ──► fund_escrow ──► release            (matured: p
 points (`penalty_bps`, max `10_000`) and is paid to the configured fee
 recipient on `refund` / adverse `resolve_dispute`.
 
+### Refund math model and invariants
+
+Refunds are computed with integer basis-point math:
+
+- `penalty = floor(amount * penalty_bps / 10_000)`
+- `refund = amount - penalty`
+
+This keeps the split stable and preserves the invariant `refund + penalty == amount`
+for valid principal amounts. The contract enforces `0 <= penalty_bps <= 10_000`
+and uses checked arithmetic so overflowing intermediate multiplication is rejected
+instead of wrapping. Boundary cases are documented in the contract tests:
+
+- `penalty_bps = 0` → full principal refund, zero penalty
+- `penalty_bps = 10_000` → zero refund, full principal penalty
+- tiny amounts (`1`, `2`, `3`, etc.) remain non-negative and partition cleanly
+- seeded deterministic property tests cover randomized mid-range values and overflow guards
+
 ### Errors
 
 Stable numeric error codes (`#[contracterror]`) are surfaced so the backend
