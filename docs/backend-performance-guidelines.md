@@ -36,6 +36,56 @@ This document establishes clear technical standards for backend performance, inc
 *   **Exponential Backoff**: Implement exponential backoff for polling when the state hasn't changed or errors occur.
 *   **E-Tags / Last-Modified**: Use conditional requests (If-None-Match, If-Modified-Since) to avoid downloading data that hasn't changed.
 
+## 4.1 ETag Implementation for List Endpoints
+
+CommitLabs implements ETag-based caching for read-heavy list endpoints to reduce bandwidth and re-render costs. This applies to:
+- `/api/commitments` (GET)
+- `/api/marketplace/listings` (GET)
+- `/api/attestations` (GET)
+
+### How It Works
+
+1. **ETag Generation**: A stable SHA-256 hash is computed from the serialized JSON response payload
+2. **Conditional Requests**: Clients send `If-None-Match` header with the cached ETag
+3. **304 Not Modified**: Server returns 304 status when ETag matches, avoiding full payload transmission
+4. **Cache Headers**: Responses include `Cache-Control: public, max-age=0, must-revalidate` and `ETag` headers
+
+### Implementation Details
+
+- **Location**: `src/lib/backend/withApiHandler.ts` (shared handler)
+- **ETag Utilities**: `src/lib/backend/etag.ts` (generateETag, etagMatches)
+- **Envelope Stability**: ETags are computed on the success envelope shape to ensure consistency across requests
+- **Automatic**: Enable with `enableETag: true` option in withApiHandler
+
+### Example Client Usage
+
+```javascript
+// First request
+const response = await fetch('/api/commitments?ownerAddress=G...');
+const etag = response.headers.get('etag');
+const data = await response.json();
+
+// Subsequent request with cached ETag
+const cachedResponse = await fetch('/api/commitments?ownerAddress=G...', {
+  headers: { 'If-None-Match': etag }
+});
+
+if (cachedResponse.status === 304) {
+  // Use cached data, no re-render needed
+  console.log('Data unchanged, using cache');
+} else {
+  // Data changed, update UI
+  const newData = await cachedResponse.json();
+}
+```
+
+### Performance Impact
+
+- **Bandwidth Reduction**: 304 responses eliminate payload transmission for unchanged data
+- **Re-render Prevention**: Clients can skip UI updates when data hasn't changed
+- **Polling Optimization**: Enables efficient polling at recommended frequencies (30-60s for dashboards)
+- **Typical Savings**: 95%+ bandwidth reduction for unchanged data (304 response ~200 bytes vs full payload)
+
 ## 4. Implementation Examples
 
 ### REST API Example (Node.js/Express)

@@ -79,7 +79,7 @@ export const GET = withApiHandler(async (req: NextRequest, _context, correlation
   const items = mapped.slice(start, start + pageSize);
 
   return ok({ items, page, pageSize, total }, undefined, 200, correlationId);
-}, { cors: COMMITMENTS_CORS_POLICY });
+}, { cors: COMMITMENTS_CORS_POLICY, enableETag: true });
 
 export const POST = withApiHandler(async (req: NextRequest, _context, correlationId) => {
   const ip = getClientIp(req);
@@ -104,7 +104,7 @@ export const POST = withApiHandler(async (req: NextRequest, _context, correlatio
   try {
     validateStellarAddress(ownerAddress, "ownerAddress");
   } catch {
-    return fail("BAD_REQUEST", "Invalid ownerAddress: must be a valid Stellar address (G... format).", undefined, 400, correlationId);
+    throw new ValidationError("Invalid ownerAddress: must be a valid Stellar address (G... format).");
   }
   if (!asset || typeof asset !== "string") {
     return fail("BAD_REQUEST", "Invalid asset", undefined, 400, correlationId);
