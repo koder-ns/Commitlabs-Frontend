@@ -94,7 +94,46 @@ All services must emit metrics to be monitored by the observability platform (e.
 *   **Stress Testing**: Determine the breaking point of the system by increasing load until failure.
 *   **Automated Checks**: Integrate performance tests into the CI/CD pipeline. Fails build if latency thresholds are exceeded.
 
-## 7. Escalation Procedures
+## 7. Soroban RPC Timeout Policy
+
+All Soroban RPC interactions in `src/lib/backend/services/contracts.ts` are
+wrapped with an `AbortController`-backed per-call timeout.
+
+### Configuring the timeout
+
+Set `SOROBAN_RPC_TIMEOUT_MS` in your environment (see `.env.example`).
+If unset the default is **30 000 ms (30 s)**.
+
+```env
+# Increase for slow testnets, decrease for strict latency budgets
+SOROBAN_RPC_TIMEOUT_MS=30000
+```
+
+### Timeout behaviour
+
+| Scenario | HTTP status | `retryable` | Notes |
+| :--- | :--- | :--- | :--- |
+| `getAccount` / `simulateTransaction` hang | `504 GATEWAY_TIMEOUT` | `true` | Safe to retry — no state was mutated. |
+| `prepareTransaction` hang | `504 GATEWAY_TIMEOUT` | `true` | Safe to retry — tx was not broadcast. |
+| `sendTransaction` hang | `504 GATEWAY_TIMEOUT` | `true` | **Outcome unknown** — the tx may have been broadcast. Surface the error details to the user. |
+| `waitForTransactionResult` hang | `504 GATEWAY_TIMEOUT` | `true` | Tx was broadcast; include `txHash` from error details so users can verify on-chain. |
+
+### Write-call semantics
+
+When a timeout fires after `sendTransaction` has already submitted the
+transaction, the `GATEWAY_TIMEOUT` error details will include the `txHash`.
+API routes must propagate this hash to the client so the user can verify the
+final outcome on-chain independently.
+
+### Implementation detail
+
+A single `AbortController` is created per `invokeContractMethod` invocation.
+`setTimeout(controller.abort, timeoutMs)` schedules the abort, and every
+awaited RPC promise is wrapped in `abortableRpc()` which races the real call
+against the abort signal.  The timer is always cleared in a `finally` block so
+no leaks occur on the success path.
+
+## 8. Escalation Procedures
 
 If a service consistently violates performance guidelines:
 

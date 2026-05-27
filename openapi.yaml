@@ -227,41 +227,32 @@ paths:
               schema:
                 $ref: '#/components/schemas/SuccessEnvelope'
 
-  /api/attestations/recent:
-    get:
-      summary: Recent Attestations
-      description: >
-        Returns recent attestations sorted by timestamp descending, with
-        page-based pagination metadata. Optionally filter by commitment owner
-        address (requires Bearer token authentication when `ownerAddress` is
-        provided).
+  /api/marketplace/listings/{id}/preflight:
+    post:
+      summary: Purchase Preflight
+      description: Checks whether the authenticated buyer is eligible to purchase a listing before committing.
       security:
-        - {}
-        - bearerAuth: []
+        - cookieAuth: []
       parameters:
-        - name: page
-          in: query
-          description: Page number (1-based). Must be ≥ 1. Defaults to 1.
-          schema:
-            type: integer
-            minimum: 1
-            default: 1
-        - name: pageSize
-          in: query
-          description: Number of items per page. Must be 1–100. Defaults to 10.
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 100
-            default: 10
-        - name: ownerAddress
-          in: query
-          description: Filter attestations by commitment owner address. Requires a valid Bearer token.
+        - name: id
+          in: path
+          required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [buyerAddress]
+              properties:
+                buyerAddress:
+                  type: string
+                  example: "GBUYERADDRESS..."
       responses:
         '200':
-          description: Paginated list of recent attestations, sorted newest-first.
+          description: Preflight result.
           content:
             application/json:
               schema:
@@ -272,40 +263,77 @@ paths:
                       data:
                         type: object
                         properties:
-                          attestations:
+                          eligible:
+                            type: boolean
+                          reasons:
                             type: array
                             items:
-                              type: object
-                          total:
-                            type: integer
-                            description: Total number of matching attestations (before pagination).
-                      meta:
-                        type: object
-                        properties:
-                          page: { type: integer }
-                          pageSize: { type: integer }
-                          total: { type: integer }
-                          totalPages: { type: integer }
-                          hasNextPage: { type: boolean }
-                          hasPrevPage: { type: boolean }
-              example:
-                success: true
-                data:
-                  attestations: []
-                  total: 0
-                meta:
-                  page: 1
-                  pageSize: 10
-                  total: 0
-                  totalPages: 1
-                  hasNextPage: false
-                  hasPrevPage: false
+                              type: string
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '429':
-          $ref: '#/components/responses/RateLimited'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/marketplace/listings/{id}/purchase:
+    post:
+      summary: Purchase Listing
+      description: |
+        Purchases a marketplace listing. Runs preflight eligibility checks,
+        authenticates the buyer via session cookie, triggers on-chain ownership
+        transfer through the contracts service, and records the event in the
+        audit log.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The marketplace listing ID.
+      responses:
+        '200':
+          description: Purchase completed successfully.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/SuccessEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          listingId:
+                            type: string
+                          commitmentId:
+                            type: string
+                          buyerAddress:
+                            type: string
+                          price:
+                            type: string
+                          currencyAsset:
+                            type: string
+                          txHash:
+                            type: string
+                            nullable: true
+                          reference:
+                            type: string
+                            nullable: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Purchase not eligible (listing inactive, buyer is seller, etc.).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/ServerError'
 
   /api/attestations:
     get:
