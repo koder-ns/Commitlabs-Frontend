@@ -1,11 +1,11 @@
-import { NextRequest } from 'next/server'
+import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { fail, ok, methodNotAllowed } from "@/lib/backend/apiResponse";
 import { createCorsOptionsHandler, type CorsRoutePolicy } from '@/lib/backend/cors';
 import { TooManyRequestsError, ValidationError } from "@/lib/backend/errors";
 import { getClientIp } from '@/lib/backend/getClientIp';
 import { parseJsonWithLimit, JSON_BODY_LIMITS } from "@/lib/backend/jsonBodyLimit";
-import { checkRateLimit } from "@/lib/backend/rateLimit";
+import { checkRateLimit, getRateLimitWindowSeconds } from "@/lib/backend/rateLimit";
 import { getUserCommitmentsFromChain, createCommitmentOnChain } from "@/lib/backend/services/contracts";
 import { validateStellarAddress } from "@/lib/backend/validation";
 import { withApiHandler } from "@/lib/backend/withApiHandler";
@@ -46,7 +46,11 @@ export const GET = withApiHandler(async (req: NextRequest, _context, correlation
   const { ownerAddress, page, pageSize, status, type, minCompliance } = queryResult.data;
   const ip = getClientIp(req);
   if (!(await checkRateLimit(ip, "api/commitments"))) {
-    throw new TooManyRequestsError();
+    throw new TooManyRequestsError(
+      "Too many requests. Please try again later.",
+      undefined,
+      getRateLimitWindowSeconds("api/commitments"),
+    );
   }
 
   const commitments = await getUserCommitmentsFromChain(ownerAddress);
@@ -63,6 +67,7 @@ export const GET = withApiHandler(async (req: NextRequest, _context, correlation
     violationCount: c.violationCount,
     createdAt: c.createdAt,
     expiresAt: c.expiresAt,
+    contractVersion: c.contractVersion,
   }));
 
   if (status) mapped = mapped.filter((c) => c.status === status);
@@ -78,8 +83,13 @@ export const GET = withApiHandler(async (req: NextRequest, _context, correlation
 
 export const POST = withApiHandler(async (req: NextRequest, _context, correlationId) => {
   const ip = getClientIp(req);
-  if (!(await checkRateLimit(ip, "api/commitments"))) {
-    throw new TooManyRequestsError();
+  // Use the dedicated write-route key so tighter limits apply
+  if (!(await checkRateLimit(ip, "api/commitments/create"))) {
+    throw new TooManyRequestsError(
+      "Too many requests. Please try again later.",
+      undefined,
+      getRateLimitWindowSeconds("api/commitments/create"),
+    );
   }
 
   const parsed = await parseJsonWithLimit(req, {
@@ -89,7 +99,7 @@ export const POST = withApiHandler(async (req: NextRequest, _context, correlatio
   const { ownerAddress, asset, amount, durationDays, maxLossBps, metadata } = body;
 
   if (!ownerAddress || typeof ownerAddress !== "string") {
-    throw new ValidationError("Invalid ownerAddress");
+    return fail("BAD_REQUEST", "Invalid ownerAddress", undefined, 400, correlationId);
   }
   try {
     validateStellarAddress(ownerAddress, "ownerAddress");
@@ -97,16 +107,16 @@ export const POST = withApiHandler(async (req: NextRequest, _context, correlatio
     throw new ValidationError("Invalid ownerAddress: must be a valid Stellar address (G... format).");
   }
   if (!asset || typeof asset !== "string") {
-    throw new ValidationError("Invalid asset");
+    return fail("BAD_REQUEST", "Invalid asset", undefined, 400, correlationId);
   }
   if (!amount || isNaN(Number(amount))) {
-    throw new ValidationError("Invalid amount");
+    return fail("BAD_REQUEST", "Invalid amount", undefined, 400, correlationId);
   }
   if (!durationDays || durationDays <= 0) {
-    throw new ValidationError("Invalid durationDays");
+    return fail("BAD_REQUEST", "Invalid durationDays", undefined, 400, correlationId);
   }
   if (maxLossBps == null || maxLossBps < 0) {
-    throw new ValidationError("Invalid maxLossBps");
+    return fail("BAD_REQUEST", "Invalid maxLossBps", undefined, 400, correlationId);
   }
 
   const result = await createCommitmentOnChain({

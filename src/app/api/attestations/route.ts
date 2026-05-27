@@ -149,6 +149,7 @@ export const POST = withApiHandler(async (req: NextRequest, _context, correlatio
           violation: result.violation,
           feeEarned: result.feeEarned,
           recordedAt: result.recordedAt,
+          contractVersion: result.contractVersion,
         },
         txReference: result.txHash ?? null,
       },
