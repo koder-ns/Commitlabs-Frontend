@@ -112,3 +112,24 @@ Exceptions to these guidelines must be approved by the Architecture Review Board
     *   Impact analysis on system resources and user experience.
     *   Proposed mitigation (e.g., aggressive caching, async processing).
     *   Timeline for compliance or permanent waiver justification.
+
+
+## 9. Soroban Read Retry Policy
+
+Read calls to Soroban RPC (`src/lib/backend/services/contracts.ts`) are wrapped in a bounded retry-with-exponential-backoff layer. Its purpose is to absorb short-lived RPC hiccups — rate limiting, gateway errors, timeouts — without surfacing them to callers, while staying strictly bounded so a struggling RPC endpoint can never stall a request.
+
+### What is retried
+
+Only **read-mode** contract calls, and only when they fail with a *transient* error. Transience is decided by `isRetryableContractError`, which reuses the classification produced by `normalizeContractError` so there is a single source of truth. Retried failures are HTTP 429, HTTP 503/504, timeout/deadline errors, and generic gateway-class failures (e.g. a dropped socket) — safe to retry because reads are idempotent.
+
+### What is never retried
+
+- **Write transactions — ever.** Re-submitting a signed transaction risks double execution. See "Write-retry guard" below.
+- HTTP 404 (not found) — a deterministic result, not a transient failure.
+- HTTP 400 / validation errors — retrying cannot change the outcome.
+- Configuration errors (missing contract address or source account, surfaced as a 500 `BLOCKCHAIN_UNAVAILABLE`) — not transient.
+- The optimistic `get_user_commitments` probe in `getUserCommitmentsFromChain`. Its failure is *expected* on contracts that don't implement that method and is handled by an id-based fallback; retrying an expected failure would only add latency. Transient errors are still covered, because the fallback `get_user_commitment_ids` read and the per-id `getCommitmentFromChain` reads each go through the retrying path.
+
+### Backoff algorithm
+
+Delays grow exponentially and use **equal jitter** so that many concurrent callers (e.g. parallel per-commitment reads) do not retry in lock-step:
