@@ -74,3 +74,57 @@ stellar contract build
 
 > Note: this workspace is scaffolded to ground the contract issue backlog.
 > Verify a local toolchain before deploying to testnet/mainnet.
+
+## Event-assertion tests
+
+`escrow/src/test.rs` includes an `assert_event` helper and dedicated tests that
+verify every lifecycle function emits the expected Soroban event.
+
+### Helper: `assert_event`
+
+```rust
+fn assert_event<D: IntoVal<Env, Val>>(
+    env: &Env,
+    contract_id: &Address,
+    event_name: &str,
+    expected_data: D,
+)
+```
+
+Reads `env.events().all()` (the `soroban_sdk::testutils::Events` trait), filters
+to events emitted by the escrow contract whose first topic matches `event_name`,
+and asserts that the data payload equals `expected_data`. Panics with a
+descriptive message on failure.
+
+### Event coverage
+
+| Function | Topics | Data |
+| --- | --- | --- |
+| `create_commitment` | `(Symbol("create_commitment"), owner)` | `(id, amount, maturity)` |
+| `fund_escrow` | `(Symbol("fund_escrow"), owner)` | `(commitment_id, amount)` |
+| `release` | `(Symbol("release"), owner)` | `(commitment_id, amount)` |
+| `refund` | `(Symbol("refund"), owner)` | `(commitment_id, refund_amount, penalty)` |
+| `dispute` | `(Symbol("dispute"), caller)` | `(commitment_id, reason)` |
+| `resolve_dispute` | `(Symbol("resolve_dispute"), admin)` | `(commitment_id, release_to_owner, paid)` |
+
+### Test list
+
+- `event_create_commitment` — asserts `(id, amount, maturity)` after `create_commitment`.
+- `event_fund_escrow` — asserts `(id, amount)` after `fund_escrow`.
+- `event_release` — asserts `(id, amount)` after `release` past maturity.
+- `event_refund` — asserts `(id, refund_amount, penalty)` with 5% penalty.
+- `event_dispute` — asserts `(id, reason)` after `dispute`.
+- `event_resolve_dispute_release` — asserts `(id, true, paid)` on admin release.
+- `event_resolve_dispute_refund` — asserts `(id, false, paid)` on admin refund with penalty.
+- `assert_event_matches_correct_name_only` — verifies the helper matches only the
+  named event when multiple events exist in the same environment.
+
+### Design decisions
+
+- **Independent environments**: each test constructs its own `Env::default()`, so
+  events never bleed between tests.
+- **Deterministic maturity**: ledger timestamp starts at 0 in tests, so
+  `maturity = duration_days * 86_400` is always predictable.
+- **Data comparison via `IntoVal`**: the helper converts the expected tuple to a
+  `Val` using the same `IntoVal<Env, Val>` path the SDK uses internally, so the
+  comparison is byte-for-byte identical to what the contract emits.
