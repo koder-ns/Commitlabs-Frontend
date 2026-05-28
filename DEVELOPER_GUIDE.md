@@ -32,6 +32,28 @@ Welcome to the CommitLabs Frontend developer guide. This document provides guide
     relevant to business actions. This makes it easy to wire an external
     analytics platform later on.
 
+### Request ID Correlation
+
+-   All App Router API routes should be wrapped with `withApiHandler`.
+-   `withApiHandler` will accept an incoming `x-request-id` header if present,
+    otherwise it will generate a new one.
+-   The resolved request id is included in structured backend logs and returned
+    to the client via the `x-request-id` response header.
+
+### Backend Breaking Change Checklist
+
+If your change introduces a backend contract break that can impact frontend
+clients, complete this checklist in the same PR:
+
+-   [ ] Update OpenAPI docs/spec so the contract change is explicit and reviewable.
+-   [ ] Add an entry to `docs/backend-changelog.md` using the template in that file.
+-   [ ] Update or add contract tests that validate the new request/response shape.
+-   [ ] Add UI migration notes that describe impacted pages/components and required
+    frontend changes.
+
+Treat this checklist as required for all endpoint, payload, auth, and error
+shape breaking changes.
+
 ### React & Next.js
 
 -   **Functional Components**: Use functional components with hooks.
@@ -47,6 +69,41 @@ Welcome to the CommitLabs Frontend developer guide. This document provides guide
 -   **Tailwind First**: Prefer Tailwind utility classes for layout, spacing, and typography.
 -   **CSS Modules**: Use CSS Modules for complex, custom animations or specific component isolation that Tailwind handles less elegantly.
 -   **Responsiveness**: Build mobile-first using Tailwind's breakpoints (`sm:`, `md:`, `lg:`).
+
+## 🧹 Linting
+
+The project uses ESLint with the Next.js + TypeScript ruleset.
+
+**Configuration**: `.eslintrc.json` (ESLint v8 legacy format, compatible with `eslint-config-next`)
+
+```json
+{
+  "extends": ["next/core-web-vitals", "next/typescript"],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ]
+  }
+}
+```
+
+**Rules in effect:**
+- `next/core-web-vitals` — Next.js recommended rules including React Hooks and import hygiene
+- `next/typescript` — TypeScript-aware rules (no-unused-vars, no-explicit-any, etc.)
+- Unused variables/args/caught errors prefixed with `_` are intentionally ignored (e.g. `_error`, `_token`)
+
+**Running lint:**
+
+```bash
+pnpm lint
+```
+
+Fix all errors before committing. Warnings are informational but should be addressed where practical.
 
 ## 🧪 Testing Procedures
 

@@ -9,6 +9,7 @@ import React from "react";
 
 import { ExperienceSection } from "@/components/landing-page/sections/ExperienceSection";
 import { Navigation } from "@/components/landing-page/Navigation";
+import ModalTester from "./ModalTester";
 
 export default function Home() {
   return (
@@ -24,6 +25,7 @@ export default function Home() {
         <ExperienceSection />
       </main>
       <Footer />
+      <ModalTester />
     </div>
   );
 }

@@ -60,12 +60,14 @@ export interface Attestation {
 }
 
 export interface HealthMetrics {
-  status: string;
-  uptime: number;
-  mock_requests_total?: number;
-  mock_errors_total?: number;
-  timestamp: string;
-}
+   status: string;
+   uptime: number;
+   rate_limit_blocks: number;
+   auth_failures: number;
+   chain_failures: number;
+   successful_actions: number;
+   timestamp: string;
+ }
 
 export type ListingStatus = 'Active' | 'Sold' | 'Cancelled';
 

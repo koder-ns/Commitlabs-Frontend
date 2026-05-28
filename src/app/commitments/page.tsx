@@ -6,6 +6,7 @@ import MyCommitmentsHeader from '@/components/MyCommitmentsHeader'
 import MyCommitmentsStats from '@/components/MyCommitmentsStats/MyCommitmentsStats'
 import MyCommitmentsFilters from '@/components/MyCommitmentsFilters/MyCommitmentsFilters'
 import MyCommitmentsGrid from '@/components/MyCommitmentsGrid'
+import MyCommitmentsGridSkeleton from '@/components/MyCommitmentsGridSkeleton'
 import CommitmentEarlyExitModal from '@/components/CommitmentEarlyExitModal/CommitmentEarlyExitModal'
 import { Commitment, CommitmentStats } from '@/types/commitment'
 import { listCommitments } from '@/lib/backend/mocks/contracts'
@@ -140,16 +141,27 @@ export default function MyCommitments() {
   const [earlyExitCommitmentId, setEarlyExitCommitmentId] = useState<string | null>(null)
   const [hasAcknowledged, setHasAcknowledged] = useState(false)
   const [commitmentsList, setCommitmentsList] = useState<Commitment[]>(mockCommitments)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_USE_MOCKS === 'true') {
-      listCommitments().then(setCommitmentsList)
+      setIsLoading(true)
+      listCommitments()
+        .then(setCommitmentsList)
+        .finally(() => setIsLoading(false))
+    } else {
+      // Simulate loading for demo purposes
+      const timer = setTimeout(() => {
+        setIsLoading(false)
+      }, 1000)
+      return () => clearTimeout(timer)
     }
   }, [])
 
   // Derived State
   const filteredCommitments = useMemo(() => {
-    const filtered = mockCommitments.filter((c) => {
+    const filtered = commitmentsList.filter((c) => {
       const matchesSearch = c.id.toLowerCase().includes(searchQuery.toLowerCase())
       const matchesStatus = statusFilter === 'All' || c.status.toLowerCase() === statusFilter.toLowerCase()
       const matchesType = typeFilter === 'All' || c.type.toLowerCase() === typeFilter.toLowerCase()
@@ -179,6 +191,7 @@ export default function MyCommitments() {
 
   // Callbacks
   const openEarlyExitModal = useCallback((id: string) => {
+    setSuccessMessage(null)
     setEarlyExitCommitmentId(id)
     setHasAcknowledged(false)
   }, [])
@@ -189,9 +202,25 @@ export default function MyCommitments() {
   }, [])
 
   const handleConfirmEarlyExit = useCallback(() => {
-    if (!earlyExitCommitmentId) return
+    if (!earlyExitCommitmentId || !earlyExitSummary) return
+
+    const committed = commitmentsList.find((c) => c.id === earlyExitCommitmentId)
+    if (!committed) return
+
+    setCommitmentsList((current) =>
+      current.map((commitment) =>
+        commitment.id === earlyExitCommitmentId
+          ? { ...commitment, status: 'Early Exit' }
+          : commitment
+      )
+    )
+
+    setSuccessMessage(
+      `Early exit confirmed for ${committed.id}. ${earlyExitSummary.penaltyPercent} penalty applied; you will receive ${earlyExitSummary.netReceiveAmount}.`
+    )
+
     closeEarlyExitModal()
-  }, [earlyExitCommitmentId, closeEarlyExitModal])
+  }, [earlyExitCommitmentId, earlyExitSummary, commitmentsList, closeEarlyExitModal])
 
   return (
     <main id="main-content" className="min-h-screen bg-[#0a0a0a] flex flex-col">
@@ -200,31 +229,59 @@ export default function MyCommitments() {
         onCreateNew={() => router.push('/create')}
       />
 
+      {successMessage && (
+        <div className="mx-22 mt-4 rounded-[28px] border border-[#0ff0fc1a] bg-[#0ff0fc0d] px-6 py-4 text-[#e6fffe] shadow-[0_20px_60px_rgba(15,240,252,0.12)] max-[1024px]:mx-8 max-[640px]:mx-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm leading-6 text-white/90">{successMessage}</p>
+            <button
+              type="button"
+              onClick={() => setSuccessMessage(null)}
+              className="text-[13px] font-semibold uppercase tracking-[0.18em] text-[#0ff0fc] hover:text-white transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+          <p className="mt-2 text-[13px] text-white/70">
+            This commitment has been updated to Early Exit status in your portfolio. Check the list for the new status and confirm any remaining settlement details.
+          </p>
+        </div>
+      )}
+
       <div className="w-full flex-1 px-22 py-8 max-[1024px]:px-8 max-[640px]:px-4">
-        <MyCommitmentsStats
-          totalActive={mockStats.totalActive}
-          totalCommittedValue={mockStats.totalCommittedValue}
-          averageComplianceScore={`${mockStats.avgComplianceScore}%`}
-          totalFeesGenerated={mockStats.totalFeesGenerated}
-        />
+        {isLoading ? (
+          <MyCommitmentsGridSkeleton
+            showStats={true}
+            showFilters={true}
+            cardCount={6}
+          />
+        ) : (
+          <>
+            <MyCommitmentsStats
+              totalActive={mockStats.totalActive}
+              totalCommittedValue={mockStats.totalCommittedValue}
+              averageComplianceScore={`${mockStats.avgComplianceScore}%`}
+              totalFeesGenerated={mockStats.totalFeesGenerated}
+            />
 
-        <MyCommitmentsFilters
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-          status={statusFilter}
-          onStatusChange={setStatusFilter}
-          type={typeFilter}
-          onTypeChange={setTypeFilter}
-          sortBy={sortBy}
-          onSortByChange={setSortBy}
-        />
+            <MyCommitmentsFilters
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              status={statusFilter}
+              onStatusChange={setStatusFilter}
+              type={typeFilter}
+              onTypeChange={setTypeFilter}
+              sortBy={sortBy}
+              onSortByChange={setSortBy}
+            />
 
-        <MyCommitmentsGrid
-          commitments={filteredCommitments}
-          onDetails={(id) => router.push(`/commitments/${id}`)}
-          onAttestations={(id) => console.log('Attestations for', id)}
-          onEarlyExit={openEarlyExitModal}
-        />
+            <MyCommitmentsGrid
+              commitments={filteredCommitments}
+              onDetails={(id) => router.push(`/commitments/${id}`)}
+              onAttestations={(id) => console.log('Attestations for', id)}
+              onEarlyExit={openEarlyExitModal}
+            />
+          </>
+        )}
       </div>
 
       {commitmentForEarlyExit && earlyExitSummary && (

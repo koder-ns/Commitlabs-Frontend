@@ -36,11 +36,33 @@ How to switch versions safely
 2. Set `NEXT_PUBLIC_ACTIVE_CONTRACT_VERSION` to the desired version (e.g., `v2`).
 3. Restart the application to pick up new environment variables.
 
+Fallback behavior
+- If `NEXT_PUBLIC_ACTIVE_CONTRACT_VERSION` is not set, the application defaults to `v1`.
+- If `NEXT_PUBLIC_CONTRACTS_JSON` is not set, the application falls back to parsing legacy environment variables (`NEXT_PUBLIC_COMMITMENT_CORE_CONTRACT`, etc.) and treating them as `v1` contracts.
+- If a requested contract entry or key is missing in a version, the application will throw an error during contract resolution.
+
+Invalid version handling
+- If `NEXT_PUBLIC_ACTIVE_CONTRACT_VERSION` points to a version not defined in `NEXT_PUBLIC_CONTRACTS_JSON`, the application will throw an error: "Active contract version 'X' not found".
+- Invalid JSON in `NEXT_PUBLIC_CONTRACTS_JSON` will cause a parse error at startup; check JSON syntax and proper escaping.
+- Incomplete contract entries (missing `address` field) in a version will throw an error when that contract is accessed.
+
 Example `.env` entries
 
 ```
 NEXT_PUBLIC_ACTIVE_CONTRACT_VERSION=v2
-NEXT_PUBLIC_CONTRACTS_JSON={"v1":{"commitmentCore":{"address":"0xold"}},"v2":{"commitmentCore":{"address":"0xnew"}}}
+
+NEXT_PUBLIC_CONTRACTS_JSON={
+  "v1": {
+    "commitmentCore": {
+      "address": "0xv1core"
+    }
+  },
+  "v2": {
+    "commitmentCore": {
+      "address": "0xv2core"
+    }
+  }
+}
 ```
 
 Common misconfiguration errors and fixes
@@ -51,3 +73,18 @@ Common misconfiguration errors and fixes
 Notes
 - The runtime accessor lives at `src/lib/backend/config.ts` and provides `getActiveContracts()` and `getContractAddress(key)`.
 - Legacy single-variable env configuration is still supported and automatically mapped to `v1` to avoid breaking changes.
+
+# Backend CORS Configuration
+
+Browser-facing API routes use an explicit CORS policy helper.
+
+Environment variables
+- `COMMITLABS_FIRST_PARTY_ORIGINS`: comma-separated allowlist for trusted app origins that can call first-party routes with credentials.
+- `COMMITLABS_PUBLIC_API_ORIGINS`: comma-separated allowlist for public browser routes, or `*`. Default: `*`.
+
+Notes
+- `COMMITLABS_FIRST_PARTY_ORIGINS` must never be `*`.
+- Development always allows `http://localhost:3000` and `http://127.0.0.1:3000`.
+- If present, `APP_URL`, `NEXT_PUBLIC_APP_URL`, `SITE_URL`, `NEXT_PUBLIC_SITE_URL`, `VERCEL_PROJECT_PRODUCTION_URL`, and `VERCEL_URL` are folded into the first-party allowlist.
+
+See `docs/backend-cors-policy.md` for the route classification and allowed methods.
