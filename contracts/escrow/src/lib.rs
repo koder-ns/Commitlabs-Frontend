@@ -138,6 +138,9 @@ pub struct Commitment {
     /// Compliance score 0..=100 recorded by the attestation engine.
     pub compliance_score: u32,
     pub created_at: u64,
+    /// Arbitrary key-value metadata supplied at creation time (e.g. risk notes,
+    /// off-chain context). Keys and values are both `String`. Empty by default.
+    pub metadata: Map<String, String>,
 }
 
 /// Errors returned to the caller. Numeric codes are stable and surfaced by the
@@ -305,6 +308,7 @@ impl EscrowContract {
         risk: RiskProfile,
         duration_days: u32,
         penalty_bps: u32,
+        metadata: Map<String, String>,
     ) -> Result<u64, Error> {
         Self::require_init(&env)?;
         Self::require_not_paused(&env)?;
@@ -414,6 +418,7 @@ impl EscrowContract {
             penalty_bps,
             compliance_score: 100,
             created_at: now,
+            metadata,
         };
 
         env.storage()

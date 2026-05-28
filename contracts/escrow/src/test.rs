@@ -38,7 +38,8 @@ fn unauthorized_cannot_rotate_admin_or_fee_recipient() {
 
 use super::*;
 use soroban_sdk::{
-    testutils::{Address as _, Events, Ledger as _},
+    map,
+    testutils::{Address as _, Ledger as _},
     token::{StellarAssetClient, TokenClient},
     Address, Bytes, BytesN, Env, String,
 };
@@ -227,7 +228,7 @@ fn create_and_fund_locks_funds() {
 
     let id = f
         .client
-        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300, &Map::new(&f.env));
     let c = f.client.get_commitment(&id);
     assert_eq!(c.status, EscrowStatus::Created);
     assert_eq!(c.amount, 1_000);
@@ -244,7 +245,7 @@ fn release_after_maturity_pays_principal_plus_yield() {
     fund_owner(&f, &owner, 1_000);
     let id = f
         .client
-        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Safe, &10, &200);
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Safe, &10, &200, &Map::new(&f.env));
     f.client.fund_escrow(&id);
 
     let admin_deposit = 10;
@@ -310,7 +311,7 @@ fn release_before_maturity_fails() {
     fund_owner(&f, &owner, 1_000);
     let id = f
         .client
-        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Safe, &10, &200);
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Safe, &10, &200, &Map::new(&f.env));
     f.client.fund_escrow(&id);
 
     let res = f.client.try_release(&id);
@@ -372,7 +373,7 @@ fn refund_applies_penalty_to_fee_recipient() {
     // 5% penalty.
     let id = f
         .client
-        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Aggressive, &30, &500);
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Aggressive, &30, &500, &Map::new(&f.env));
     f.client.fund_escrow(&id);
 
     let refunded = f.client.refund(&id);
@@ -389,7 +390,7 @@ fn dispute_freezes_then_admin_resolves() {
     fund_owner(&f, &owner, 1_000);
     let id = f
         .client
-        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300, &Map::new(&f.env));
     f.client.fund_escrow(&id);
 
     f.client
@@ -413,7 +414,7 @@ fn create_rejects_invalid_amount() {
     let owner = Address::generate(&f.env);
     let res =
         f.client
-            .try_create_commitment(&owner, &f.asset, &0, &RiskProfile::Safe, &30, &200);
+            .try_create_commitment(&owner, &f.asset, &0, &RiskProfile::Safe, &30, &200, &Map::new(&f.env));
     assert_eq!(res, Err(Ok(Error::InvalidAmount)));
 }
 
@@ -428,6 +429,7 @@ fn create_rejects_excessive_penalty() {
         &RiskProfile::Safe,
         &30,
         &20_000,
+        &Map::new(&f.env),
     );
     assert_eq!(res, Err(Ok(Error::PenaltyTooHigh)));
 }
@@ -439,7 +441,7 @@ fn record_attestation_clamps_score() {
     let attestor = Address::generate(&f.env);
     let id = f
         .client
-        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300);
+        .create_commitment(&owner, &f.asset, &1_000, &RiskProfile::Balanced, &30, &300, &Map::new(&f.env));
     f.client.record_attestation(&id, &attestor, &250);
     assert_eq!(f.client.get_commitment(&id).compliance_score, 100);
 }
@@ -450,10 +452,10 @@ fn owner_index_tracks_commitments() {
     let owner = Address::generate(&f.env);
     let a = f
         .client
-        .create_commitment(&owner, &f.asset, &100, &RiskProfile::Safe, &30, &200);
+        .create_commitment(&owner, &f.asset, &100, &RiskProfile::Safe, &30, &200, &Map::new(&f.env));
     let b = f
         .client
-        .create_commitment(&owner, &f.asset, &200, &RiskProfile::Balanced, &30, &300);
+        .create_commitment(&owner, &f.asset, &200, &RiskProfile::Balanced, &30, &300, &Map::new(&f.env));
     let ids = f.client.get_owner_commitments(&owner);
     assert_eq!(ids.len(), 2);
     assert_eq!(ids.get(0).unwrap(), a);
