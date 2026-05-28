@@ -1,6 +1,8 @@
+// Triggering rebuild
 #![no_std]
 #![allow(non_snake_case)]
 //! CommitLabs Escrow Contract
+
 //!
 //! Implements the on-chain escrow lifecycle backing CommitLabs liquidity
 //! commitments. A commitment locks a depositor's assets for a fixed duration
