@@ -21,6 +21,15 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, Address, BytesN, Env, String, Symbol, Vec,
 };
 
+// Configuration constants for escrow contract
+const SECONDS_PER_DAY: u64 = 86_400;
+// Maximum allowed commitment amount (example limit)
+const MAX_AMOUNT: i128 = 1_000_000_000_000;
+// Maximum allowed duration in days
+const MAX_DURATION_DAYS: u32 = 365;
+// Maximum penalty basis points (100% = 10_000 bps)
+const MAX_PENALTY_BPS: u32 = 10_000;
+
 /// Storage keys for persistent contract state.
 #[contracttype]
 #[derive(Clone)]
@@ -180,22 +189,7 @@ pub struct EarlyExitResult {
     pub finalStatus: EscrowStatus,
 }
 
-const MAX_PENALTY_BPS: u32 = 10_000;
-const SECONDS_PER_DAY: u64 = 86_400;
-const YIELD_BPS_DENOMINATOR: i128 = 3_650_000; // 365 days * 10_000 bps
 
-fn yield_rate_bps(risk: RiskProfile) -> u32 {
-    match risk {
-        RiskProfile::Safe => 500,
-        RiskProfile::Balanced => 700,
-        RiskProfile::Aggressive => 1_000,
-    }
-}
-
-fn calculate_accrued_yield(amount: i128, duration_days: u32, risk: RiskProfile) -> i128 {
-    let rate_bps = yield_rate_bps(risk) as i128;
-    (amount * rate_bps * duration_days as i128) / YIELD_BPS_DENOMINATOR
-}
 
 #[contract]
 pub struct EscrowContract;
@@ -320,7 +314,13 @@ impl EscrowContract {
         if amount <= 0 {
             return Err(Error::InvalidAmount);
         }
+        if amount > MAX_AMOUNT {
+            return Err(Error::InvalidAmount);
+        }
         if duration_days == 0 {
+            return Err(Error::InvalidDuration);
+        }
+        if duration_days > MAX_DURATION_DAYS {
             return Err(Error::InvalidDuration);
         }
         if penalty_bps > MAX_PENALTY_BPS {
@@ -329,24 +329,7 @@ impl EscrowContract {
 
         let id = Self::next_id(&env);
         let now = env.ledger().timestamp();
-
-        // Guard against overflow when converting duration_days into an absolute
-        // maturity timestamp. Overflow must never wrap, otherwise commitments
-        // could be released/refunded at incorrect times.
-        //
-        // NOTE: Soroban client bindings may pass arguments in ways that can hide
-        // the expected arithmetic overflow during tests. Explicitly reject
-        // impossible duration ranges before doing any conversions.
-        let max_duration_days = (u64::MAX / SECONDS_PER_DAY) as u32;
-        if duration_days > max_duration_days {
-            return Err(Error::InvalidDuration);
-        }
-
-        let duration_seconds = (duration_days as u64) * SECONDS_PER_DAY;
-        let maturity = now
-            .checked_add(duration_seconds)
-            .ok_or(Error::InvalidDuration)?;
-
+        let maturity = now.checked_add((duration_days as u64).checked_mul(SECONDS_PER_DAY).ok_or(Error::InvalidDuration)?).ok_or(Error::InvalidDuration)?;
 
         let commitment = Commitment {
             id,

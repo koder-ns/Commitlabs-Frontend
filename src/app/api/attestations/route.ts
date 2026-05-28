@@ -127,7 +127,7 @@ export const POST = withApiHandler(async (req: NextRequest, _context, correlatio
   }
 
   try {
-    await getCommitmentFromChain(body.commitmentId);
+    await getCommitmentFromChain(body.commitmentId, { requestId: correlationId });
   } catch (err) {
     const normalized = normalizeBackendError(err, {
       code: 'BLOCKCHAIN_CALL_FAILED',

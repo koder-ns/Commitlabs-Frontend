@@ -515,6 +515,36 @@ fn owner_index_tracks_commitments() {
     assert_eq!(ids.len(), 2);
     assert_eq!(ids.get(0).unwrap(), a);
     assert_eq!(ids.get(1).unwrap(), b);
+
+    #[test]
+    fn create_rejects_excessive_amount() {
+        let f = setup();
+        let owner = Address::generate(&f.env);
+        let res = f.client.try_create_commitment(
+            &owner,
+            &f.asset,
+            &(MAX_AMOUNT + 1),
+            &RiskProfile::Safe,
+            &(MAX_DURATION_DAYS + 1),
+            &2000,
+        );
+        assert_eq!(res, Err(Ok(Error::InvalidAmount)));
+    }
+
+    #[test]
+    fn create_rejects_excessive_duration() {
+        let f = setup();
+        let owner = Address::generate(&f.env);
+        let res = f.client.try_create_commitment(
+            &owner,
+            &f.asset,
+            &1_000,
+            &RiskProfile::Safe,
+            &(MAX_DURATION_DAYS + 1),
+            &2000,
+        );
+        assert_eq!(res, Err(Ok(Error::InvalidDuration)));
+    }
 }
 
 fn assert_refund_invariants(amount: i128, penalty_bps: u32) {
