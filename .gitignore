@@ -34,8 +34,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-/contracts/target/
-/target/
 
 # Rust / Cargo
 /contracts/target/
+
+contracts/target/
+**/target/
