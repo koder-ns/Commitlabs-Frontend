@@ -55,6 +55,7 @@ export interface ChainCommitment {
   violationCount: number;
   createdAt?: string;
   expiresAt?: string;
+  contractVersion?: string;
 }
 
 export interface CreateCommitmentOnChainResult {
@@ -126,7 +127,6 @@ export interface ResolveDisputeOnChainResult {
   resolvedAt: string;
 }
 
-type ContractCallMode = 'read' | 'write';
 export interface EarlyExitCommitmentOnChainParams {
   commitmentId: string;
   callerAddress?: string;
@@ -454,6 +454,10 @@ const READ_RETRY_CONFIG = {
  * failures — 404 (not found) and 400 (validation) — are never retried.
  */
 export function isRetryableContractError(error: unknown): boolean {
+  if (error instanceof BackendError && error.code === "GATEWAY_TIMEOUT") {
+    return false;
+  }
+
   const normalized = normalizeContractError(error, {
     code: "BLOCKCHAIN_CALL_FAILED",
     message: "Soroban read call failed.",
@@ -515,6 +519,10 @@ function parseChainCommitment(value: unknown): ChainCommitment {
     violationCount: asNumber(raw.violationCount ?? raw.violation_count),
     createdAt: asString(raw.createdAt ?? raw.created_at) || undefined,
     expiresAt: asString(raw.expiresAt ?? raw.expires_at) || undefined,
+    contractVersion:
+      asString(raw.contractVersion ?? raw.contract_version) ||
+      (getBackendConfig() as { activeVersion?: string }).activeVersion ||
+      undefined,
   };
 }
 
@@ -587,6 +595,46 @@ function parseCommitmentList(value: unknown): ChainCommitment[] {
   return value.map((item) => parseChainCommitment(item));
 }
 
+function getRpcTimeoutMs(): number {
+  const raw = process.env.SOROBAN_RPC_TIMEOUT_MS;
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 15_000;
+}
+
+function withRpcTimeout<T>(
+  promise: Promise<T>,
+  methodName: string,
+  timeoutMs = getRpcTimeoutMs(),
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new BackendError({
+          code: "GATEWAY_TIMEOUT",
+          message: "The blockchain operation timed out. It may still be processed later.",
+          status: 504,
+          details: {
+            methodName,
+            timeoutMs,
+            retryable: true,
+          },
+        }),
+      );
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function waitForTransactionResult(
   server: SorobanRpc.Server,
   hash: string,
@@ -594,7 +642,11 @@ async function waitForTransactionResult(
 ): Promise<unknown> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const tx = await server.getTransaction(hash);
+    const tx = await withRpcTimeout(
+      server.getTransaction(hash),
+      "getTransaction",
+      timeoutMs,
+    );
     if (tx.status === SorobanRpc.Api.GetTransactionStatus.SUCCESS) {
       return tx.returnValue ? scValToNative(tx.returnValue) : null;
     }
@@ -656,7 +708,7 @@ async function invokeContractMethod(
   const contract = new Contract(contractId);
   const account =
     mode === "write"
-      ? await server.getAccount(sourcePublicKey)
+      ? await withRpcTimeout(server.getAccount(sourcePublicKey), "getAccount")
       : new Account(sourcePublicKey, "0");
   const operation = contract.call(
     methodName,
@@ -671,7 +723,10 @@ async function invokeContractMethod(
     .setTimeout(30)
     .build();
 
-  const simulation = await server.simulateTransaction(tx);
+  const simulation = await withRpcTimeout(
+    server.simulateTransaction(tx),
+    methodName,
+  );
   if (SorobanRpc.Api.isSimulationError(simulation)) {
     throw normalizeContractError(new Error(simulation.error), {
       code: "BLOCKCHAIN_CALL_FAILED",
@@ -697,9 +752,15 @@ async function invokeContractMethod(
     });
   }
 
-  const preparedTx = await server.prepareTransaction(tx);
+  const preparedTx = await withRpcTimeout(
+    server.prepareTransaction(tx),
+    "prepareTransaction",
+  );
   preparedTx.sign(sourceKeypair);
-  const sendResult = await server.sendTransaction(preparedTx);
+  const sendResult = await withRpcTimeout(
+    server.sendTransaction(preparedTx),
+    "sendTransaction",
+  );
   const txHash = sendResult.hash;
 
   const onChainValue = await waitForTransactionResult(server, txHash);
@@ -1172,53 +1233,29 @@ export async function fundEscrowOnChain(
 export async function openDisputeOnChain(
   params: DisputeOnChainParams,
 ): Promise<DisputeOnChainResult> {
-{
-  // Minimal, test-friendly implementation: validate input and return a stubbed
-  // dispute result. In production this should invoke the on-chain contract.
-  if (!params?.commitmentId) {
-    throw new BackendError({
-      code: 'BAD_REQUEST',
-      message: 'Missing commitment id for dispute.',
-      status: 400,
-    });
-  }
+  try {
+    if (!params.commitmentId) {
+      throw new BackendError({
+        code: "BAD_REQUEST",
+        message: "Missing commitment id for dispute.",
+        status: 400,
+      });
+    }
 
-  // Return a placeholder result. Tests that exercise on-chain behavior should
-  // mock these functions where needed.
-  return {
-    commitmentId: params.commitmentId,
-    disputeId: `dispute-${params.commitmentId}`,
-    status: 'OPEN',
-    txHash: undefined,
-    disputedAt: new Date().toISOString(),
-  } as DisputeOnChainResult;
-}
+    const commitment = await getCommitmentFromChain(params.commitmentId);
 
-export async function earlyExitCommitmentOnChain(
-  params: EarlyExitCommitmentOnChainParams,
-  loggingContext?: LoggingContext,
-): Promise<EarlyExitCommitmentOnChainResult> {
-  if (!params?.commitmentId) {
-    throw new BackendError({
-      code: 'BAD_REQUEST',
-      message: 'Missing commitment id for early exit.',
-      status: 400,
-    });
-  }
-
-  // Minimal stub: return a plausible early-exit result. Callers/tests that
-  // require real chain interactions should mock this function.
-  return {
-    exitAmount: '0',
-    penaltyAmount: '0',
-    finalStatus: 'EARLY_EXIT',
-    txHash: undefined,
-    reference: 'TODO_CHAIN_CALL_EARLY_EXIT',
-  };
-}
+    if (commitment.status === "SETTLED" || commitment.status === "EARLY_EXIT") {
       throw new BackendError({
         code: "CONFLICT",
-        message: "Commitment has already been exited early.",
+        message: "Cannot dispute a commitment that is already settled or exited.",
+        status: 409,
+      });
+    }
+
+    if (commitment.status === "DISPUTED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Commitment is already in dispute.",
         status: 409,
       });
     }
@@ -1231,21 +1268,21 @@ export async function earlyExitCommitmentOnChain(
     );
 
     const result = asRecord(invocation.value);
-    const disputeId = asString(result.disputeId ?? result.id);
+    const disputeId = asString(result.disputeId ?? result.id) || `dsp-${params.commitmentId}`;
     const status = asString(result.status, "DISPUTED");
 
-    // Status changed — invalidate detail and owner list.
     await cache.delete(CacheKey.commitment(params.commitmentId));
     if (commitment.ownerAddress) {
       await cache.delete(CacheKey.userCommitments(commitment.ownerAddress));
     }
+
     logInfo(undefined, "[cache] invalidated commitment after dispute", {
       commitmentId: params.commitmentId,
     });
 
     return {
       commitmentId: params.commitmentId,
-      disputeId: disputeId || `dsp-${params.commitmentId}`,
+      disputeId,
       status,
       txHash: invocation.txHash,
       disputedAt: new Date().toISOString(),
@@ -1281,10 +1318,6 @@ export async function resolveDisputeOnChain(
       throw new BackendError({
         code: "CONFLICT",
         message: "Can only resolve a commitment that is currently in dispute.",
-    if (commitment.status === "VIOLATED") {
-      throw new BackendError({
-        code: "CONFLICT",
-        message: "Commitment has been violated and cannot be exited early.",
         status: 409,
       });
     }
@@ -1293,42 +1326,29 @@ export async function resolveDisputeOnChain(
       getContractId("commitmentCore"),
       "resolve_dispute",
       [params.commitmentId, params.resolution, params.notes ?? ""],
-      "early_exit_commitment",
-      [params.commitmentId, params.callerAddress ?? commitment.ownerAddress],
       "write",
     );
 
     const result = asRecord(invocation.value);
-    const disputeId = asString(result.disputeId ?? result.id);
+    const disputeId = asString(result.disputeId ?? result.id) || `dsp-${params.commitmentId}`;
     const finalStatus = asString(result.finalStatus, "ACTIVE");
 
-    // Status changed — invalidate detail and owner list.
     await cache.delete(CacheKey.commitment(params.commitmentId));
     if (commitment.ownerAddress) {
       await cache.delete(CacheKey.userCommitments(commitment.ownerAddress));
     }
+
     logInfo(undefined, "[cache] invalidated commitment after dispute resolution", {
       commitmentId: params.commitmentId,
     });
 
     return {
       commitmentId: params.commitmentId,
-      disputeId: disputeId || `dsp-${params.commitmentId}`,
+      disputeId,
       resolution: params.resolution,
       finalStatus,
       txHash: invocation.txHash,
       resolvedAt: new Date().toISOString(),
-    const exitAmount = asString(result.exitAmount, "0");
-    const penaltyAmount = asString(result.penaltyAmount, "0");
-    const finalStatus = asString(result.finalStatus, "EARLY_EXIT");
-
-    return {
-      exitAmount,
-      penaltyAmount,
-      finalStatus,
-      txHash: invocation.txHash,
-      contractVersion: invocation.version,
-      reference: invocation.txHash ? undefined : `TODO_CHAIN_CALL_EARLY_EXIT`,
     };
   } catch (error) {
     throw normalizeContractError(error, {
@@ -1337,6 +1357,90 @@ export async function resolveDisputeOnChain(
       status: 502,
       details: {
         method: "resolve_dispute",
+        commitmentId: params.commitmentId,
+      },
+    });
+  }
+}
+
+export async function earlyExitCommitmentOnChain(
+  params: EarlyExitCommitmentOnChainParams,
+  loggingContext?: LoggingContext,
+): Promise<EarlyExitCommitmentOnChainResult> {
+  try {
+    if (!params.commitmentId) {
+      throw new BackendError({
+        code: "BAD_REQUEST",
+        message: "Missing commitment id for early exit.",
+        status: 400,
+      });
+    }
+
+    if (params.callerAddress) {
+      validateOwnerAddress(params.callerAddress);
+    }
+
+    const commitment = await getCommitmentFromChain(params.commitmentId, loggingContext);
+
+    if (commitment.status === "SETTLED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Commitment has already been settled and cannot be exited early.",
+        status: 409,
+      });
+    }
+
+    if (commitment.status === "VIOLATED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Commitment has been violated and cannot be exited early.",
+        status: 409,
+      });
+    }
+
+    if (commitment.status === "DISPUTED") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Commitment is already in dispute.",
+        status: 409,
+      });
+    }
+
+    if (commitment.status === "EARLY_EXIT") {
+      throw new BackendError({
+        code: "CONFLICT",
+        message: "Commitment has already been exited early.",
+        status: 409,
+      });
+    }
+
+    const invocation = await invokeContractMethod(
+      getContractId("commitmentCore"),
+      "early_exit_commitment",
+      [params.commitmentId, params.callerAddress ?? commitment.ownerAddress],
+      "write",
+    );
+
+    const result = asRecord(invocation.value);
+    const exitAmount = asString(result.exitAmount, "0");
+    const penaltyAmount = asString(result.penaltyAmount, "0");
+    const finalStatus = asString(result.finalStatus, "EARLY_EXIT");
+
+    await cache.delete(CacheKey.commitment(params.commitmentId));
+    if (commitment.ownerAddress) {
+      await cache.delete(CacheKey.userCommitments(commitment.ownerAddress));
+    }
+
+    return {
+      exitAmount,
+      penaltyAmount,
+      finalStatus,
+      txHash: invocation.txHash,
+      reference: invocation.txHash ? undefined : "TODO_CHAIN_CALL_EARLY_EXIT",
+    };
+  } catch (error) {
+    throw normalizeContractError(error, {
+      code: "BLOCKCHAIN_CALL_FAILED",
       message: "Unable to exit commitment early on chain.",
       status: 502,
       details: {

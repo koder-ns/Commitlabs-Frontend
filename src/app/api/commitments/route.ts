@@ -98,14 +98,6 @@ export const POST = withApiHandler(async (req: NextRequest, _context, correlatio
   const body = (parsed ?? {}) as Partial<CreateCommitmentRequestBody>;
   const { ownerAddress, asset, amount, durationDays, maxLossBps, metadata } = body;
 
-  if (!ownerAddress || typeof ownerAddress !== "string") {
-    return fail("BAD_REQUEST", "Invalid ownerAddress", undefined, 400, correlationId);
-  }
-  try {
-    validateStellarAddress(ownerAddress, "ownerAddress");
-  } catch {
-    throw new ValidationError("Invalid ownerAddress: must be a valid Stellar address (G... format).");
-  }
   if (!asset || typeof asset !== "string") {
     return fail("BAD_REQUEST", "Invalid asset", undefined, 400, correlationId);
   }
@@ -113,6 +105,20 @@ export const POST = withApiHandler(async (req: NextRequest, _context, correlatio
     validateSupportedAsset(asset, "asset");
   } catch {
     throw new ValidationError("Asset is not supported. Supported assets: XLM, USDC.");
+  }
+  if (!ownerAddress || typeof ownerAddress !== "string") {
+    return fail("BAD_REQUEST", "Invalid ownerAddress", undefined, 400, correlationId);
+  }
+  try {
+    validateStellarAddress(ownerAddress, "ownerAddress");
+  } catch {
+    return fail(
+      "BAD_REQUEST",
+      "Invalid ownerAddress: must be a valid Stellar address (G... format).",
+      undefined,
+      400,
+      correlationId,
+    );
   }
   if (!amount || isNaN(Number(amount))) {
     return fail("BAD_REQUEST", "Invalid amount", undefined, 400, correlationId);

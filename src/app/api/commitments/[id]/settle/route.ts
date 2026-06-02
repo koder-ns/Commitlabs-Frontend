@@ -64,8 +64,8 @@ export const POST = withApiHandler(async (req: NextRequest, { params }, correlat
       throw new ValidationError('Invalid request data', validation.error.issues);
     }
 
-  const callerAddress = validation.data.callerAddress;
-  const commitment: any = await getCommitmentFromChain(id, { requestId: correlationId });
+    const callerAddress = validation.data.callerAddress;
+    const commitment: any = await getCommitmentFromChain(id, { requestId: correlationId });
 
     if (!commitment) {
       throw new NotFoundError('Commitment', { commitmentId: id });
@@ -80,10 +80,13 @@ export const POST = withApiHandler(async (req: NextRequest, { params }, correlat
       throw new ConflictError('Commitment has already been exited early');
     }
 
-  const settlementResult = await settleCommitmentOnChain({
-    commitmentId: id,
-    callerAddress,
-  }, { requestId: correlationId });
+    const settlementResult = await settleCommitmentOnChain(
+      {
+        commitmentId: id,
+        callerAddress,
+      },
+      { requestId: correlationId },
+    );
 
     logCommitmentSettled({
       ip,

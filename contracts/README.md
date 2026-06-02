@@ -99,63 +99,18 @@ create_commitment ──► fund_escrow ──► release            (matured: p
                                   └──► dispute ──► resolve_dispute   (admin adjudication)
 ```
 
-## Authorization Matrix
+### Persistent storage TTL strategy
 
-### Role Definitions
+Commitment records and owner-index entries live in persistent Soroban storage, so
+they need explicit TTL management for long-duration escrows.
 
-| Role | Description | How Verified |
-|------|-------------|--------------|
-| **Owner** | The address that created or currently owns a commitment. | Stored in `Commitment.owner`; verified via `require_auth()` |
-| **Admin** | The contract administrator, set at initialization. | Stored in `DataKey::Admin`; verified via `require_auth()` |
-| **Attestor** | Any address authorized to record compliance scores. | Verified via `require_auth()` on `record_attestation()` |
-| **Any** | Permissionless; no authorization required. | No `require_auth()` call |
+- `save` bumps each `Commitment(id)` entry when its remaining TTL no longer covers the commitment maturity horizon.
+- `index_owner` recomputes the latest maturity still referenced by an owner's id list and bumps `OwnerIndex(owner)` to that horizon.
+- The target TTL is the remaining time to maturity plus a small post-maturity ledger buffer so release/refund can still execute after the unlock point.
+- Bumps are thresholded instead of unconditional to avoid paying rent-extension fees when an entry already has enough TTL.
 
-### Entrypoint Authorization
-
-| Entrypoint | Owner | Admin | Attestor | Any | Notes |
-|------------|-------|-------|----------|-----|-------|
-| `initialize()` | ❌ | ✅ | ❌ | ❌ | One-time setup; admin must authorize |
-| `create_commitment()` | ✅ | ❌ | ❌ | ❌ | Owner creates and must authorize |
-| `create_commitment_with_default_penalty()` | ✅ | ❌ | ❌ | ❌ | Owner creates and must authorize |
-| `fund_escrow()` | ✅ | ❌ | ❌ | ❌ | Owner funds and must authorize |
-| `release()` | ❌ | ❌ | ❌ | ✅ | Permissionless post-maturity; funds always go to stored owner |
-| `refund()` | ✅ | ❌ | ❌ | ❌ | Owner refunds and must authorize |
-| `refund_partial()` | ✅ | ❌ | ❌ | ❌ | Owner refunds and must authorize |
-| `early_exit_commitment()` | ✅ | ❌ | ❌ | ❌ | Owner exits and must authorize |
-| `dispute()` | ✅ | ✅ | ❌ | ❌ | Owner or admin can open dispute |
-| `resolve_dispute()` | ❌ | ✅ | ❌ | ❌ | Admin only; resolves disputes |
-| `transfer_ownership()` | ✅ | ❌ | ❌ | ❌ | Current owner must authorize transfer |
-| `record_attestation()` | ❌ | ❌ | ✅ | ❌ | Attestor must authorize |
-| `deposit_yield_pool()` | ❌ | ✅ | ❌ | ❌ | Admin only; funds yield pool |
-| `pause()` | ❌ | ✅ | ❌ | ❌ | Admin only; emergency halt |
-| `unpause()` | ❌ | ✅ | ❌ | ❌ | Admin only; resume operations |
-| `set_grace_period()` | ❌ | ✅ | ❌ | ❌ | Admin only; configures grace window |
-| `set_violation_threshold()` | ❌ | ✅ | ❌ | ❌ | Admin only; configures auto-violation |
-| `upgrade()` | ❌ | ✅ | ❌ | ❌ | Admin only; contract upgrade |
-| `set_admin()` | ❌ | ✅ | ❌ | ❌ | Current admin only; rotates admin |
-| `set_fee_recipient()` | ❌ | ✅ | ❌ | ❌ | Current admin only; rotates fee recipient |
-
-### Read-Only Functions (No Authorization)
-
-| Entrypoint | Description |
-|------------|-------------|
-| `get_commitment()` | Read a single commitment record |
-| `get_owner_commitments()` | List commitment ids owned by an address |
-| `get_dispute()` | Read the dispute record for a commitment |
-| `get_attestations()` | Retrieve attestation history for a commitment |
-| `get_default_penalty()` | Read default penalty for a risk profile |
-| `get_grace_period()` | Read the configured grace period |
-| `get_violation_threshold()` | Read the configured violation threshold |
-| `get_yield_pool_balance()` | Read the yield pool balance |
-| `is_paused()` | Read the current paused state |
-
-### Authorization Notes
-
-- **Permissionless Release**: `release()` is intentionally permissionless post-maturity to avoid liveness issues (e.g., owner loses key). Funds always transfer to the stored `Commitment.owner`, preventing fund diversion.
-- **Owner Authorization**: Functions that modify a commitment (fund, refund, dispute, transfer) require the owner to sign via `require_auth()`.
-- **Admin Authority**: Only the admin can resolve disputes, manage yield pool, pause/unpause, and upgrade the contract.
-- **Attestor Authority**: Any address can record compliance attestations if they authorize the call. The attestor address is stored in the `AttestationRecord` for audit purposes.
-- **No Multi-Sig**: The contract uses single-signature authorization. Multi-sig is handled at the transaction level by the Stellar network.
+This keeps active commitments readable for their full lifecycle while keeping
+Soroban fee overhead under control.
 
 ### Marketplace transfer flow (secondary trading)
 
@@ -163,14 +118,22 @@ create_commitment ──► fund_escrow ──► release            (matured: p
 
 | Function | Description |
 | --- | --- |
-| `initialize(admin, token, fee_recipient, safe_default_penalty_bps, balanced_default_penalty_bps, aggressive_default_penalty_bps)` | One-time contract setup. |
-| `create_commitment(owner, asset, amount, risk, duration_days, penalty_bps, metadata)` | Create an unfunded commitment with an explicit penalty. |
-| `create_commitment_with_default(owner, asset, amount, risk, duration_days)` | Create an unfunded commitment using the configured default risk penalty. |
-| `fund_escrow(commitment_id)` | Move the owner funds into escrow and mark the commitment as funded. |
-| `release(commitment_id)` | Release principal plus accrued yield after maturity. |
-| `refund(commitment_id)` | Return principal minus penalty before maturity. |
-| `refund_partial(commitment_id, amount)` | Partially exit a funded commitment. |
-| `dispute(commitment_id, caller, reason)` | Freeze a funded commitment and store the dispute record. |
+| `initialize(admin, token, fee_recipient, safe_default_penalty_bps, balanced_default_penalty_bps, aggressive_default_penalty_bps)` | One-time setup of admin, escrow token (SAC), fee recipient, and default penalties for each risk profile. |
+| `create_commitment(owner, asset, amount, risk, duration_days, penalty_bps)` | Create an unfunded commitment with explicit penalty; returns its `id`. |
+| `create_default_commitment(owner, asset, amount, risk, duration_days)` | Create an unfunded commitment using the default penalty for the risk profile; returns its `id`. |
+| `fund_escrow(commitment_id)` | Transfer `amount` from owner into the contract (`Created → Funded`). |
+| `transfer_ownership(commitment_id, new_owner)` | Transfer marketplace ownership for secondary trading (`Funded` only). Current owner must authorize and the contract updates both `Commitment.owner` and `OwnerIndex`. |
+| `release(commitment_id, caller)` | Return principal to owner once matured (`Funded → Released`). |
+| `refund(commitment_id)` | Early-exit refund of principal minus `penalty_bps` (`Funded → Refunded`). |
+| `dispute(commitment_id, caller, reason)` | Freeze a funded commitment pending admin resolution. |
+
+| `deposit_yield_pool(admin, amount)` | Admin-only deposit of yield tokens into the contract yield pool. |
+| `get_yield_pool_balance()` | Read the yield pool balance available for matured release payouts. |
+| `release(commitment_id, caller)` | Return principal plus accrued yield to owner once matured (`Funded → Released`). |
+| `refund(commitment_id)` | Early-exit refund of principal minus `penalty_bps` (`Funded → Refunded`). |
+| `set_grace_period(admin, grace_period_seconds)` | Admin-only configuration of the penalty-free grace window before maturity. |
+| `get_grace_period()` | Read the currently configured penalty-free grace period in seconds. |
+| `dispute(commitment_id, caller, reason)` | Freeze a funded commitment pending admin resolution. The reason is automatically categorized. |
 | `resolve_dispute(commitment_id, release_to_owner)` | Admin-only settlement of a disputed commitment. |
 | `transfer_ownership(commitment_id, new_owner)` | Move marketplace ownership for funded commitments. |
 | `record_attestation(commitment_id, attestor, compliance_score)` | Store a compliance attestation. |

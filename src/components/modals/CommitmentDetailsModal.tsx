@@ -212,11 +212,15 @@ export function CommitmentDetailsModal({
                   <span className="uppercase tracking-[0.3em] text-[#0FF0FC]/80">
                     Risk
                   </span>
-                  <span className="text-white">
-                    {capitalizeType(typeVariant)}
-                  </span>
-                </div>
-              </div>
+                  <div className="flex items-center gap-2 text-white font-mono text-[13px]">
+                    {getStatusIcon(item.statusVariant)}
+                    {item.statusLabel}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
 
               <div className="bg-gradient-to-br from-[#0FF0FC0D] to-transparent border border-[#0FF0FC1A] rounded-[24px] p-6 sm:p-8">
                 <div className="text-[#9CA3AF] text-[13px] font-medium uppercase tracking-[0.25em] mb-3">

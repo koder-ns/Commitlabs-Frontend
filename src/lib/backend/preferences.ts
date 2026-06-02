@@ -48,6 +48,13 @@ export const userPreferencesSchema = z.object({
      */
     notifications: z
         .object({
+            email: z.boolean().optional(),
+            push: z.boolean().optional(),
+            sms: z.boolean().optional(),
+        })
+        .optional(),
+    notificationCategories: z
+        .object({
             expiry: z.boolean().optional(),
             violation: z.boolean().optional(),
             health_check: z.boolean().optional(),
