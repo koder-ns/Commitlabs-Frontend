@@ -104,48 +104,57 @@ curl -X POST http://localhost:3000/api/marketplace/listings/listing_1/purchase \
 
 ---
 
-## `POST /api/commitments`
+## `GET /api/admin/audit-events`
 
-Creates a new commitment on the Stellar network.
+Retrieves recent audit events for admin investigation and allows optional
+filtering by actor, event type, and time window.
 
-- **Headers**:
-  - `Idempotency-Key`: (Optional) A unique string to identify the request and prevent duplicate processing. Recommended for safe retries.
-- **Request body**:
-  - `ownerAddress`: (string, required) The Stellar address of the owner.
-  - `asset`: (string, required) The asset code.
-  - `amount`: (string, required) The amount to commit.
-  - `durationDays`: (number, required) The duration of the commitment in days.
-  - `maxLossBps`: (number, required) Maximum loss in basis points.
-  - `metadata`: (object, optional) Additional metadata.
+- **Authentication**: admin bearer token (`Authorization: Bearer <COMMITLABS_ADMIN_SECRET>`)
+- **Query parameters**:
+  - `limit` (number, optional) — maximum events to return, 1–200. Defaults to 50.
+  - `actor` (string, optional) — exact actor address to match.
+  - `type` (string, optional) — audit event action, e.g. `commitment.created`.
+  - `startTime` (string, optional) — ISO 8601 lower bound (inclusive).
+  - `endTime` (string, optional) — ISO 8601 upper bound (inclusive).
 - **Response**:
-  - `201 Created`: The commitment was successfully created.
-  - `409 Conflict`: A request with the same `Idempotency-Key` is already in progress.
+  - `200 OK`: Events returned.
+  - `400 Validation Error`: Invalid filter or pagination parameters.
+  - `403 Forbidden`: Feature disabled or invalid admin token.
   - `429 Too Many Requests`: Rate limit exceeded.
 
 ### Example
 
 ```bash
-curl -X POST http://localhost:3000/api/commitments \
-     -H 'Content-Type: application/json' \
-     -d '{"asset":"XLM","amount":100}'
+curl -X GET 'http://localhost:3000/api/admin/audit-events?actor=0xdeadbeef&type=attestation.recorded&startTime=2026-04-01T00:00:00Z&endTime=2026-04-30T23:59:59Z' \
+     -H 'Authorization: Bearer <COMMITLABS_ADMIN_SECRET>'
 ```
 
 ```json
 {
-  "message": "Commitments creation endpoint stub - rate limiting applied",
-  "ip": "::1"
+  "success": true,
+  "data": {
+    "events": [
+      {
+        "id": "evt-002",
+        "timestamp": "2026-04-23T12:00:00Z",
+        "category": "attestation",
+        "action": "attestation.recorded",
+        "severity": "info",
+        "actor": "[REDACTED]",
+        "ip": "[REDACTED]",
+        "resourceId": "ATT-002"
+      }
+    ],
+    "total": 1
+  },
+  "meta": {
+    "limit": 50
+  }
 }
 ```
 
 ---
 
-## `POST /api/commitments/[id]/settle`
-
-Marks the commitment identified by `id` as settled. Currently a stub that emits
-`CommitmentSettled` events.
-
-- **Path parameter**: `id` (string)
-- **Headers**:
     - `Idempotency-Key`: (Optional) A unique string to identify the request and prevent duplicate processing. Replayed requests within the 24-hour replay window return the original prior result.
 - **Request body**: optional JSON payload with additional details.
 - **Response**: stub confirmation message.
