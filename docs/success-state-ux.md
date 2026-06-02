@@ -46,17 +46,30 @@ Every success state should follow this hierarchy:
 #### User Need
 The user needs reassurance that the commitment is active and a quick way to inspect it.
 
+#### Canonical Component
+- Source: `src/components/modals/CommitmentCreatedModal.tsx`
+- Naming: PascalCase file and component name only
+- Scope: This is the only commitment-created success modal allowed in the codebase
+- Delivery: Modal renders in a portal, traps focus, closes on `Escape`, and restores page scroll on dismiss
+
 #### Modal Content
 - Heading: `Commitment Created`
-- Body: `Your commitment is active and available in your dashboard.`
+- Body: `Your liquidity commitment is active and available in your dashboard.`
 - Metadata:
   - Commitment ID
-  - Asset pair or strategy name
-  - Start timestamp
+  - Additional metadata is optional and should only be added when it is available in the create flow without delaying confirmation
 - Primary action: `View Commitment`
-- Secondary actions: `Create Another`, `Go to Dashboard`
-- Optional share: `Copy Commitment Link`
+- Secondary actions: `Create Another`, `Close`
 - Optional external: `View on Stellar Explorer`
+
+#### Visual Spec
+- Dark modal surface with a cyan success accent
+- One centered success icon above the headline
+- High-contrast commitment ID block using monospace text
+- Up to three next-step recommendations, each one line on mobile when possible
+- Exactly one primary action with filled styling
+- Secondary actions share the same visual weight
+- External explorer link sits in a subdued footer row
 
 #### Full Page Additions
 - Commitment summary card
