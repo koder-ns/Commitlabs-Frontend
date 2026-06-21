@@ -8,6 +8,8 @@ import MyCommitmentsFilters from '@/components/MyCommitmentsFilters/MyCommitment
 import MyCommitmentsGrid from '@/components/MyCommitmentsGrid'
 import MyCommitmentsGridSkeleton from '@/components/MyCommitmentsGridSkeleton'
 import CommitmentEarlyExitModal from '@/components/CommitmentEarlyExitModal/CommitmentEarlyExitModal'
+import ExportCommitmentsModal from '@/components/export/ExportCommitmentsModal'
+import { useWallet } from '@/hooks/useWallet'
 import { Commitment, CommitmentStats } from '@/types/commitment'
 import { listCommitments } from '@/lib/backend/mocks/contracts'
 import { fetchProtocolConstants, ProtocolConstants } from '@/utils/protocol'
@@ -131,6 +133,7 @@ function getEarlyExitValues(originalAmount: string, asset: string, penaltyPercen
 
 export default function MyCommitments() {
   const router = useRouter()
+  const { address } = useWallet()
 
   // State
   const [searchQuery, setSearchQuery] = useState('')
@@ -139,12 +142,13 @@ export default function MyCommitments() {
   const [sortBy, setSortBy] = useState('Newest')
 
   const [earlyExitCommitmentId, setEarlyExitCommitmentId] = useState<string | null>(null)
+  const [isExportOpen, setIsExportOpen] = useState(false)
   const [hasAcknowledged, setHasAcknowledged] = useState(false)
   const [commitmentsList, setCommitmentsList] = useState<Commitment[]>(mockCommitments)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [protocolConstants, setProtocolConstants] = useState<ProtocolConstants | null>(null)
-  const [isLoadingConstants, setIsLoadingConstants] = useState(true)
+  const [, setIsLoadingConstants] = useState(true)
 
   useEffect(() => {
     fetchProtocolConstants()
@@ -189,7 +193,7 @@ export default function MyCommitments() {
     }
 
     return filtered
-  }, [searchQuery, statusFilter, typeFilter, sortBy])
+  }, [commitmentsList, searchQuery, statusFilter, typeFilter, sortBy])
 
   const commitmentForEarlyExit = commitmentsList.find((c) => c.id === earlyExitCommitmentId)
   const earlyExitSummary = useMemo(() => {
@@ -256,6 +260,7 @@ export default function MyCommitments() {
       <MyCommitmentsHeader
         onBack={() => router.push('/')}
         onCreateNew={() => router.push('/create')}
+        onExport={() => setIsExportOpen(true)}
       />
 
       {successMessage && (
@@ -288,7 +293,7 @@ export default function MyCommitments() {
             <MyCommitmentsStats
               totalActive={mockStats.totalActive}
               totalCommittedValue={mockStats.totalCommittedValue}
-              averageComplianceScore={`${mockStats.avgComplianceScore}%`}
+              avgComplianceScore={mockStats.avgComplianceScore}
               totalFeesGenerated={mockStats.totalFeesGenerated}
             />
 
@@ -328,6 +333,12 @@ export default function MyCommitments() {
           onClose={closeEarlyExitModal}
         />
       )}
+
+      <ExportCommitmentsModal
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        ownerAddress={address}
+      />
     </main>
   )
 }
