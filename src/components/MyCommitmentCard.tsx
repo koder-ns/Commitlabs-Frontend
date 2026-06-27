@@ -10,8 +10,7 @@ import {
   FileTextIcon,
   AlertIcon,
 } from "./icons/CommitmentIcons";
-import { TrendingUp as Increase, TrendingDown as Decrease } from "lucide-react";
-import RelistPriceEditor from "./marketplace/RelistPriceEditor";
+import { TrendingUp as Increase, TrendingDown as Decrease, Tag } from "lucide-react";
 
 interface MyCommitmentCardProps {
   commitment: Commitment;
@@ -20,7 +19,7 @@ interface MyCommitmentCardProps {
   onDetails?: (id: string) => void;
   onAttestations?: (id: string) => void;
   onEarlyExit?: (id: string) => void;
-  onListingPriceUpdated?: (commitmentId: string, newPrice: string) => void;
+  onListForSale?: (id: string) => void;
 }
 
 const MyCommitmentCard: React.FC<MyCommitmentCardProps> = ({
@@ -30,7 +29,7 @@ const MyCommitmentCard: React.FC<MyCommitmentCardProps> = ({
   onDetails,
   onAttestations,
   onEarlyExit,
-  onListingPriceUpdated,
+  onListForSale,
 }) => {
   const {
     id,
@@ -267,6 +266,15 @@ const MyCommitmentCard: React.FC<MyCommitmentCardProps> = ({
             <FileTextIcon size={16} /> Attestations
           </button>
         </div>
+        {status === "Active" && (
+          <button
+            className="flex w-full items-center justify-center gap-2 rounded-[8px] border border-[rgba(15,240,252,0.2)] bg-[rgba(15,240,252,0.05)] px-2.5 py-2 text-[14px] font-semibold text-[#0FF0FC] transition-all duration-200 ease-[ease] hover:bg-[rgba(15,240,252,0.1)]"
+            onClick={() => onListForSale?.(id)}
+            aria-label={`List ${id} for sale on the marketplace`}
+          >
+            <Tag size={16} /> List for sale
+          </button>
+        )}
         {status === "Active" && (
           <button
             className="flex w-full items-center justify-center gap-2 rounded-[8px] border border-[rgba(245,158,11,0.2)] bg-[rgba(245,158,11,0.05)] px-2.5 py-2 text-[14px] font-semibold text-[#ff8904] transition-all duration-200 ease-[ease] hover:bg-[rgba(245,158,11,0.1)]"
