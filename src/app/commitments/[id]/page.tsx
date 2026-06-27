@@ -12,6 +12,7 @@ import RecentAttestationsPanel from '@/components/RecentAttestationsPanel/Recent
 import ExportCommitmentsModal from '@/components/export/ExportCommitmentsModal';
 import CommitmentEarlyExitModal from '@/components/CommitmentEarlyExitModal/CommitmentEarlyExitModal';
 import CommitmentDisputeModal from '@/components/modals/CommitmentDisputeModal';
+import DisputeStatusTracker, { type DisputeInfo } from '@/components/dispute/DisputeStatusTracker';
 import { openExplorerUrl } from '@/utils/explorerLinks';
 
 // Mock Commitments
@@ -21,6 +22,17 @@ const MOCK_COMMITMENTS: Record<
 > = {
   '1': { id: '1', type: 'Balanced', duration: 60, maxLoss: 8, earlyExitPenaltyPercent: 3, canEarlyExit: true },
   '2': { id: '2', type: 'Safe', duration: 30, maxLoss: 2, earlyExitPenaltyPercent: 3, canEarlyExit: false },
+};
+
+// Mock dispute state — populated from /api/commitments/[id] status + history in production
+const MOCK_DISPUTES: Record<string, DisputeInfo | null> = {
+  '1': {
+    stage: 'under_review',
+    filedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    reasonCategory: 'Compliance violation',
+    reviewStartedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+  },
+  '2': null,
 };
 
 // Mock data for health metrics
@@ -129,6 +141,8 @@ export default function CommitmentDetailPage({
     const commitment = getCommitmentById(params.id)
     if (!commitment) notFound()
 
+    const dispute = MOCK_DISPUTES[params.id] ?? null;
+
     const durationLabel = `${commitment.duration} days`
     const maxLossLabel = `${commitment.maxLoss}%`
     const commitmentTypeLabel = commitment.type
@@ -209,6 +223,8 @@ export default function CommitmentDetailPage({
                         earlyExitPenaltyLabel={earlyExitPenaltyLabel}
                     />
                 </div>
+
+                <DisputeStatusTracker dispute={dispute} />
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
                     <div className="lg:col-span-2 space-y-8">
